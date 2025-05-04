@@ -49,6 +49,10 @@
     <string>Magnify needs access to your camera to provide magnification functionality.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>This app does not use the microphone</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Magnify needs access to save photos to your gallery.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Magnify needs access to your media library to save photos.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
