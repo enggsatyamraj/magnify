@@ -716,13 +716,6 @@ export default function MagnifierScreen() {
                         />
                     </TouchableOpacity>
 
-                    {/* Intensity label */}
-                    {flashOn && !showCapturedPhoto && (
-                        <Text style={styles.intensityLabel}>
-                            {Math.round(flashIntensity * 100)}%
-                        </Text>
-                    )}
-
                     {/* Capture Button - With gradient effect */}
                     <TouchableOpacity
                         style={styles.captureButton}
