@@ -317,7 +317,7 @@ export default function MagnifierScreen() {
             </View>
 
             {/* Capture Button - Positioned over the camera but below controls */}
-            <View style={styles.captureButtonContainer}>
+            {/* <View style={styles.captureButtonContainer}>
                 <TouchableOpacity
                     style={styles.captureButton}
                     onPress={takePicture}
@@ -325,7 +325,7 @@ export default function MagnifierScreen() {
                 >
                     <View style={styles.captureButtonInner} />
                 </TouchableOpacity>
-            </View>
+            </View> */}
 
             {/* Control panel - positioned outside the camera container, no filter applied here */}
             <View style={styles.controlsContainer}>
@@ -418,6 +418,23 @@ export default function MagnifierScreen() {
                             {Math.round(flashIntensity * 100)}%
                         </Text>
                     )}
+
+                    {/* Capture Button - Now placed inline with flashlight */}
+                    <TouchableOpacity
+                        style={styles.captureButton}
+                        onPress={takePicture}
+                        disabled={showCapturedPhoto}
+                    >
+                        <View style={styles.captureButtonInner}>
+                            <MaterialCommunityIcons
+                                name="camera"
+                                size={28}
+                                color={SECONDARY_COLOR}
+                            />
+                        </View>
+                    </TouchableOpacity>
+
+
                 </View>
             </View>
 
@@ -507,27 +524,28 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         marginLeft: 5,
     },
-    captureButtonContainer: {
-        position: 'absolute',
-        bottom: 100,
-        alignSelf: 'center',
-        zIndex: 10,
-    },
     captureButton: {
-        width: 70,
-        height: 70,
-        borderRadius: 35,
-        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+        width: 50,
+        height: 50,
+        borderRadius: 30,
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 2,
-        borderColor: 'white',
+        shadowColor: SECONDARY_COLOR,
+        // borderWidth: 1,
+        // borderColor: '#000',
+        backgroundColor: SURFACE_COLOR
+        // shadowOffset: { width: 0, height: 2 },
+        // shadowOpacity: 0.2,
+        // shadowRadius: 3,
+        // elevation: 3,
     },
     captureButtonInner: {
-        width: 54,
-        height: 54,
-        borderRadius: 27,
-        backgroundColor: 'white',
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        // backgroundColor: PRIMARY_COLOR, // Change from white to PRIMARY_COLOR
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     loadingContainer: {
         flex: 1,
@@ -650,7 +668,11 @@ const styles = StyleSheet.create({
         marginHorizontal: 10,
     },
     bottomControls: {
+        flexDirection: 'row',
+        justifyContent: 'center',
         alignItems: 'center',
+        paddingVertical: 10,
+        gap: 10, // Add spacing between elements
     },
     flashButton: {
         backgroundColor: SURFACE_COLOR,
