@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -11,6 +12,8 @@ import {
     Image,
     Linking,
     Modal,
+    Platform,
+    ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -21,10 +24,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { ACCENT_COLOR, BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, SUCCESS_COLOR, SURFACE_COLOR, WARNING_COLOR } from '../utils/color';
-import { router } from 'expo-router';
+
+// Constants for AsyncStorage keys
+const STORAGE_KEY_SAVED_PHOTOS = '@magnify_saved_photos';
 
 export default function MagnifierScreen() {
+    // Router for navigation
+    const router = useRouter();
+
     // Camera permissions
     const [permission, requestPermission] = useCameraPermissions();
     const [mediaLibraryPermission, requestMediaLibraryPermission] = MediaLibrary.usePermissions();
@@ -38,6 +47,12 @@ export default function MagnifierScreen() {
     const [photo, setPhoto] = useState(null);
     const [showCapturedPhoto, setShowCapturedPhoto] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [photoCount, setPhotoCount] = useState(0);
+    const GALLERY_STORAGE_KEY = '@magnify_gallery';
+
+    // Filter states
+    const [selectedFilter, setSelectedFilter] = useState('normal');
+    const [filteredPhotoUri, setFilteredPhotoUri] = useState(null);
 
     // Animation values for photo preview
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -48,6 +63,21 @@ export default function MagnifierScreen() {
 
     // Golden ratio for aesthetically pleasing proportions
     const goldenRatio = 1.618;
+
+    // Filter options
+    const filterOptions = [
+        { id: 'normal', name: 'Normal' },
+        { id: 'bw', name: 'B&W' },
+        { id: 'sepia', name: 'Sepia' },
+        { id: 'vintage', name: 'Vintage' },
+        { id: 'cool', name: 'Cool' },
+        { id: 'warm', name: 'Warm' }
+    ];
+
+    // Load saved photo count on mount
+    useEffect(() => {
+        loadSavedPhotoCount();
+    }, []);
 
     // Request permissions when component mounts
     useEffect(() => {
@@ -66,6 +96,127 @@ export default function MagnifierScreen() {
 
         checkPermissions();
     }, []);
+
+    // Save photo metadata to AsyncStorage
+    const savePhotoMetadata = async (photoUri) => {
+        try {
+            // Generate a unique identifier for the photo
+            const timeStamp = Date.now();
+            const photoId = `photo_${timeStamp}`;
+
+            // Copy photo from cache to app's documents directory for permanent storage
+            // This ensures the photo remains even after app restarts
+            const newPath = `${FileSystem.documentDirectory}${photoId}.jpg`;
+            await FileSystem.copyAsync({
+                from: photoUri,
+                to: newPath
+            });
+
+            // Create photo metadata object
+            const newPhotoEntry = {
+                id: photoId,
+                uri: newPath,
+                timestamp: timeStamp
+            };
+
+            // Get existing saved photos
+            const savedPhotosJson = await AsyncStorage.getItem(GALLERY_STORAGE_KEY);
+            let savedPhotos = [];
+
+            if (savedPhotosJson) {
+                savedPhotos = JSON.parse(savedPhotosJson);
+            }
+
+            // Add new photo to the array
+            savedPhotos.push(newPhotoEntry);
+
+            // Save updated array back to AsyncStorage
+            await AsyncStorage.setItem(GALLERY_STORAGE_KEY, JSON.stringify(savedPhotos));
+
+            // Update photo count
+            setPhotoCount(savedPhotos.length);
+
+            return newPhotoEntry;
+        } catch (error) {
+            console.error("Error saving photo metadata:", error);
+            throw error;
+        }
+    };
+
+    // Replace the loadSavedPhotoCount function with this one:
+    const loadSavedPhotoCount = async () => {
+        try {
+            const savedPhotosJson = await AsyncStorage.getItem(GALLERY_STORAGE_KEY);
+            if (savedPhotosJson) {
+                const savedPhotos = JSON.parse(savedPhotosJson);
+                setPhotoCount(savedPhotos.length);
+            }
+        } catch (error) {
+            console.error("Error loading saved photos count:", error);
+        }
+    };
+
+    // And update the savePhoto function to use the new metadata function:
+    const savePhoto = async () => {
+        if (!photo || !photo.uri) return;
+
+        try {
+            setSaving(true);
+
+            // Provide haptic feedback while saving begins
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+            // Check if we have media library permissions
+            if (!mediaLibraryPermission?.granted) {
+                const { status } = await requestMediaLibraryPermission();
+                if (status !== 'granted') {
+                    Alert.alert(
+                        "Permission Required",
+                        "Magnify needs permission to save photos to your gallery.",
+                        [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Open Settings", onPress: () => Linking.openSettings() }
+                        ]
+                    );
+                    setSaving(false);
+                    return;
+                }
+            }
+
+            // Save the photo to the gallery
+            const asset = await MediaLibrary.createAssetAsync(photo.uri);
+
+            // Create an album if needed and add the photo to it
+            const album = await MediaLibrary.getAlbumAsync('Magnify');
+            if (album === null) {
+                await MediaLibrary.createAlbumAsync('Magnify', asset, false);
+            } else {
+                await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+            }
+
+            // Save photo metadata to AsyncStorage
+            await savePhotoMetadata(photo.uri);
+
+            // Success message
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+            // Hide the photo preview with animation after saving
+            hidePhotoPreview(() => {
+                // Show success toast after the preview has closed
+                Alert.alert("Success", "Photo saved to gallery in the 'Magnify' album");
+                resetPhotoState();
+            });
+        } catch (error) {
+            console.error("Error saving photo:", error);
+            Alert.alert("Error", "Failed to save photo. Please try again.");
+            setSaving(false);
+        }
+    };
+
+    // Navigate to gallery
+    const navigateToGallery = () => {
+        router.push('/gallery');
+    };
 
     // Handle zoom slider change
     const handleZoomChange = (value) => {
@@ -135,6 +286,21 @@ export default function MagnifierScreen() {
         }
     };
 
+    // Apply filter to photo
+    const applyFilter = (filterId) => {
+        setSelectedFilter(filterId);
+        // Process image with selected filter
+        processImageWithFilter(photo.uri, filterId);
+    };
+
+    // Process image with filter and save to temporary file
+    const processImageWithFilter = async (imageUri, filterId) => {
+        // For the demo, we're just setting the filtered URI directly
+        // In a real application, you would apply actual image processing
+        // and save the processed image to a temporary file
+        setFilteredPhotoUri(imageUri);
+    };
+
     // Take a picture
     const takePicture = async () => {
         if (cameraRef.current) {
@@ -152,6 +318,8 @@ export default function MagnifierScreen() {
 
                 const photoData = await cameraRef.current.takePictureAsync(options);
                 setPhoto(photoData);
+                setFilteredPhotoUri(photoData.uri);
+                setSelectedFilter('normal');
 
                 // Display photo with animation
                 showPhotoPreview();
@@ -210,59 +378,6 @@ export default function MagnifierScreen() {
         });
     };
 
-    // Save photo to gallery
-    const savePhoto = async () => {
-        if (!photo || !photo.uri) return;
-
-        try {
-            setSaving(true);
-
-            // Provide haptic feedback while saving begins
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-            // Check if we have media library permissions
-            if (!mediaLibraryPermission?.granted) {
-                const { status } = await requestMediaLibraryPermission();
-                if (status !== 'granted') {
-                    Alert.alert(
-                        "Permission Required",
-                        "Magnify needs permission to save photos to your gallery.",
-                        [
-                            { text: "Cancel", style: "cancel" },
-                            { text: "Open Settings", onPress: () => Linking.openSettings() }
-                        ]
-                    );
-                    setSaving(false);
-                    return;
-                }
-            }
-
-            // Save the photo to the gallery
-            const asset = await MediaLibrary.createAssetAsync(photo.uri);
-
-            // Create an album if needed and add the photo to it
-            const album = await MediaLibrary.getAlbumAsync('Magnify');
-            if (album === null) {
-                await MediaLibrary.createAlbumAsync('Magnify', asset, false);
-            } else {
-                await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-            }
-
-            // Success message
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-            // Hide the photo preview with animation after saving
-            hidePhotoPreview(() => {
-                // Show success toast after the preview has closed
-                Alert.alert("Success", "Photo saved to gallery in the 'Magnify' album");
-                resetPhotoState();
-            });
-        } catch (error) {
-            console.error("Error saving photo:", error);
-            Alert.alert("Error", "Failed to save photo. Please try again.");
-            setSaving(false);
-        }
-    };
 
     // Share photo
     const sharePhoto = async () => {
@@ -293,7 +408,9 @@ export default function MagnifierScreen() {
     // Reset photo state
     const resetPhotoState = () => {
         setPhoto(null);
+        setFilteredPhotoUri(null);
         setSaving(false);
+        setSelectedFilter('normal');
 
         // Resume camera preview if it was frozen
         if (isFrozen && cameraRef.current) {
@@ -312,11 +429,6 @@ export default function MagnifierScreen() {
                 { text: "Open Settings", onPress: () => Linking.openSettings() }
             ]
         );
-    };
-
-    const navigateToGallery = () => {
-        // Navigate to gallery page
-        router.push('/gallery');
     };
 
     // Calculate flash filter opacity based on intensity
@@ -422,7 +534,7 @@ export default function MagnifierScreen() {
                 <View style={styles.toolbar}>
                     <Text style={styles.titleText}>Magnify</Text>
                     <View style={styles.topButtons}>
-                        {/* Gallery button */}
+                        {/* Gallery Button */}
                         <TouchableOpacity
                             style={styles.actionButton}
                             onPress={navigateToGallery}
@@ -432,6 +544,13 @@ export default function MagnifierScreen() {
                                 size={22}
                                 color={SECONDARY_COLOR}
                             />
+                            {photoCount > 0 && (
+                                <View style={styles.badge}>
+                                    <Text style={styles.badgeText}>
+                                        {photoCount > 99 ? '99+' : photoCount}
+                                    </Text>
+                                </View>
+                            )}
                         </TouchableOpacity>
 
                         {/* Freeze button */}
@@ -546,20 +665,20 @@ export default function MagnifierScreen() {
                 </View>
             </View>
 
-            {/* Improved Photo Preview Modal */}
+            {/* Improved Photo Preview Modal - Fullscreen with filters */}
             <Modal
                 visible={showCapturedPhoto}
                 transparent={true}
                 animationType="none" // We're handling animation ourselves
                 onRequestClose={discardPhoto}
             >
-                <View style={styles.modalContainer}>
+                <View style={styles.modalContainerFullscreen}>
                     <StatusBar style="light" />
 
                     {/* Animated container with scale and fade */}
                     <Animated.View
                         style={[
-                            styles.photoPreviewContainer,
+                            styles.photoPreviewContainerFullscreen,
                             {
                                 opacity: fadeAnim,
                                 transform: [{ scale: scaleAnim }]
@@ -567,59 +686,105 @@ export default function MagnifierScreen() {
                         ]}
                     >
                         {/* Header */}
-                        <View style={styles.previewHeader}>
-                            <Text style={styles.previewHeaderText}>Preview</Text>
+                        <View style={styles.previewHeaderFullscreen}>
+                            <Text style={styles.previewHeaderTextFullscreen}>Preview</Text>
                             <TouchableOpacity
-                                style={styles.previewCloseButton}
+                                style={styles.previewCloseButtonFullscreen}
                                 onPress={discardPhoto}
                             >
-                                <MaterialCommunityIcons name="close" size={24} color={SECONDARY_COLOR} />
+                                <MaterialCommunityIcons name="close" size={24} color="white" />
                             </TouchableOpacity>
                         </View>
 
-                        {/* Image container - using golden ratio for height */}
-                        <View style={[
-                            styles.imageContainer,
-                            {
-                                height: (width * 0.9) / goldenRatio
-                            }
-                        ]}>
+                        {/* Image container */}
+                        <View style={styles.imageContainerFullscreen}>
                             <Image
-                                source={{ uri: photo?.uri }}
-                                style={styles.photoPreview}
+                                source={{ uri: filteredPhotoUri || photo?.uri }}
+                                style={styles.photoPreviewFullscreen}
                                 resizeMode="contain"
                             />
 
-                            {/* Image quality indicator */}
-                            <View style={styles.qualityBadge}>
+                            {/* Apply black and white filter overlay */}
+                            {selectedFilter === 'bw' && (
+                                <View style={styles.bwFilter} />
+                            )}
+
+                            {/* Apply sepia filter overlay */}
+                            {selectedFilter === 'sepia' && (
+                                <View style={styles.sepiaFilter} />
+                            )}
+
+                            {/* Apply vintage filter overlay */}
+                            {selectedFilter === 'vintage' && (
+                                <View style={styles.vintageFilter} />
+                            )}
+
+                            {/* Apply cool filter overlay */}
+                            {selectedFilter === 'cool' && (
+                                <View style={styles.coolFilter} />
+                            )}
+
+                            {/* Apply warm filter overlay */}
+                            {selectedFilter === 'warm' && (
+                                <View style={styles.warmFilter} />
+                            )}
+
+                            {/* Quality badge */}
+                            <View style={styles.qualityBadgeFullscreen}>
                                 <MaterialCommunityIcons name="image-filter-hdr" size={16} color="white" />
-                                <Text style={styles.qualityText}>HD Quality</Text>
+                                <Text style={styles.qualityTextFullscreen}>HD Quality</Text>
                             </View>
                         </View>
 
+                        {/* Filter selection row */}
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.filterScrollView}
+                            contentContainerStyle={styles.filterContainer}
+                        >
+                            {filterOptions.map((filter) => (
+                                <TouchableOpacity
+                                    key={filter.id}
+                                    style={[
+                                        styles.filterOption,
+                                        selectedFilter === filter.id && styles.filterOptionSelected
+                                    ]}
+                                    onPress={() => applyFilter(filter.id)}
+                                >
+                                    <Text style={[
+                                        styles.filterText,
+                                        selectedFilter === filter.id && styles.filterTextSelected
+                                    ]}>
+                                        {filter.name}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+
                         {/* Action buttons in footer */}
-                        <View style={styles.photoActions}>
+                        <View style={styles.photoActionsFullscreen}>
                             {/* Edit button */}
                             <TouchableOpacity
-                                style={styles.photoActionButtonSecondary}
+                                style={styles.photoActionButtonFullscreen}
                                 onPress={editPhoto}
                             >
-                                <MaterialCommunityIcons name="pencil" size={20} color={SECONDARY_COLOR} />
-                                <Text style={styles.photoActionTextSecondary}>Edit</Text>
+                                <MaterialCommunityIcons name="pencil" size={20} color="white" />
+                                <Text style={styles.photoActionTextFullscreen}>Edit</Text>
                             </TouchableOpacity>
 
                             {/* Share button */}
                             <TouchableOpacity
-                                style={styles.photoActionButtonSecondary}
+                                style={styles.photoActionButtonFullscreen}
                                 onPress={sharePhoto}
                             >
-                                <MaterialCommunityIcons name="share-variant" size={20} color={SECONDARY_COLOR} />
-                                <Text style={styles.photoActionTextSecondary}>Share</Text>
+                                <MaterialCommunityIcons name="share-variant" size={20} color="white" />
+                                <Text style={styles.photoActionTextFullscreen}>Share</Text>
                             </TouchableOpacity>
 
                             {/* Save button */}
                             <TouchableOpacity
-                                style={styles.photoActionButtonPrimary}
+                                style={styles.photoActionButtonSaveFullscreen}
                                 onPress={savePhoto}
                                 disabled={saving}
                             >
@@ -628,7 +793,7 @@ export default function MagnifierScreen() {
                                 ) : (
                                     <MaterialCommunityIcons name="content-save" size={20} color="white" />
                                 )}
-                                <Text style={styles.photoActionTextPrimary}>
+                                <Text style={styles.photoActionTextFullscreen}>
                                     {saving ? 'Saving...' : 'Save'}
                                 </Text>
                             </TouchableOpacity>
@@ -638,12 +803,12 @@ export default function MagnifierScreen() {
                     {/* Bottom info tooltip */}
                     <Animated.View
                         style={[
-                            styles.infoTooltip,
+                            styles.infoTooltipFullscreen,
                             { opacity: fadeAnim }
                         ]}
                     >
                         <MaterialCommunityIcons name="information" size={18} color="white" />
-                        <Text style={styles.infoTooltipText}>
+                        <Text style={styles.infoTooltipTextFullscreen}>
                             Photos are saved in the "Magnify" album
                         </Text>
                     </Animated.View>
@@ -803,12 +968,30 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         backgroundColor: SURFACE_COLOR,
         marginLeft: 10,
+        position: 'relative',
     },
     actionButtonActive: {
         backgroundColor: SUCCESS_COLOR,
     },
     actionButtonDisabled: {
         opacity: 0.5,
+    },
+    badge: {
+        position: 'absolute',
+        top: -5,
+        right: -5,
+        minWidth: 18,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: PRIMARY_COLOR,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 4,
+    },
+    badgeText: {
+        color: 'white',
+        fontSize: 10,
+        fontWeight: 'bold',
     },
     sliderContainer: {
         flexDirection: 'row',
@@ -852,52 +1035,106 @@ const styles = StyleSheet.create({
         color: SECONDARY_COLOR,
         fontWeight: '500',
     },
-    modalContainer: {
+    // Fullscreen Photo Preview styles
+    modalContainerFullscreen: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        backgroundColor: 'black',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    photoPreviewContainer: {
-        width: '90%',
-        backgroundColor: BACKGROUND_COLOR,
-        borderRadius: 24,
-        overflow: 'hidden',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.3,
-        shadowRadius: 20,
-        elevation: 10,
+    photoPreviewContainerFullscreen: {
+        width: '100%',
+        height: '100%',
+        backgroundColor: 'black',
     },
-    previewHeader: {
+    previewHeaderFullscreen: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: SURFACE_COLOR,
+        paddingVertical: 16,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 10,
     },
-    previewHeaderText: {
+    previewHeaderTextFullscreen: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: SECONDARY_COLOR,
+        color: 'white',
     },
-    previewCloseButton: {
+    previewCloseButtonFullscreen: {
         padding: 8,
         borderRadius: 20,
     },
-    imageContainer: {
-        width: '100%',
-        backgroundColor: '#f5f5f5',
-    },
-    photoPreview: {
+    imageContainerFullscreen: {
         width: '100%',
         height: '100%',
+        position: 'relative',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    qualityBadge: {
+    photoPreviewFullscreen: {
+        width: '100%',
+        height: '100%',
+        resizeMode: 'contain',
+    },
+    // Filter overlays
+    bwFilter: {
         position: 'absolute',
-        top: 12,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'transparent',
+        mixBlendMode: 'saturation',
+        opacity: 1,
+        // For React Native, which doesn't support mixBlendMode:
+        ...(Platform.OS !== 'web' && {
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        }),
+    },
+    sepiaFilter: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(112, 66, 20, 0.2)',
+        opacity: 0.7,
+    },
+    vintageFilter: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 125, 0, 0.15)',
+        opacity: 0.7,
+    },
+    coolFilter: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 109, 255, 0.1)',
+        opacity: 0.7,
+    },
+    warmFilter: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 109, 0, 0.1)',
+        opacity: 0.7,
+    },
+    qualityBadgeFullscreen: {
+        position: 'absolute',
+        top: 70,
         right: 12,
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
         paddingHorizontal: 10,
@@ -906,28 +1143,64 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    qualityText: {
+    qualityTextFullscreen: {
         color: 'white',
         marginLeft: 4,
         fontSize: 12,
         fontWeight: '500',
     },
-    photoActions: {
+    filterScrollView: {
+        position: 'absolute',
+        bottom: 80,
+        left: 0,
+        right: 0,
+        maxHeight: 60,
+    },
+    filterContainer: {
+        paddingHorizontal: 12,
+        paddingVertical: 12,
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        justifyContent: 'center',
+    },
+    filterOption: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        marginHorizontal: 6,
+        borderRadius: 20,
+        backgroundColor: 'rgba(50, 50, 50, 0.7)',
+    },
+    filterOptionSelected: {
+        backgroundColor: PRIMARY_COLOR,
+    },
+    filterText: {
+        color: 'white',
+        fontWeight: '500',
+        fontSize: 14,
+    },
+    filterTextSelected: {
+        fontWeight: 'bold',
+    },
+    photoActionsFullscreen: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
         alignItems: 'center',
         paddingHorizontal: 16,
-        paddingVertical: 14,
+        paddingVertical: 16,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
     },
-    photoActionButtonSecondary: {
+    photoActionButtonFullscreen: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: SURFACE_COLOR,
+        backgroundColor: 'rgba(70, 70, 70, 0.6)',
         paddingVertical: 10,
         paddingHorizontal: 16,
         borderRadius: 20,
     },
-    photoActionButtonPrimary: {
+    photoActionButtonSaveFullscreen: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: PRIMARY_COLOR,
@@ -935,21 +1208,15 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         borderRadius: 20,
     },
-    photoActionTextSecondary: {
-        marginLeft: 6,
-        color: SECONDARY_COLOR,
-        fontWeight: '500',
-        fontSize: 14,
-    },
-    photoActionTextPrimary: {
+    photoActionTextFullscreen: {
         marginLeft: 6,
         color: 'white',
         fontWeight: '500',
         fontSize: 14,
     },
-    infoTooltip: {
+    infoTooltipFullscreen: {
         position: 'absolute',
-        bottom: 40,
+        bottom: 150,
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
@@ -957,7 +1224,7 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         borderRadius: 20,
     },
-    infoTooltipText: {
+    infoTooltipTextFullscreen: {
         marginLeft: 8,
         color: 'white',
         fontSize: 14,
