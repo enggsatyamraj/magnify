@@ -2,14 +2,15 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
-import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Animated,
     Dimensions,
     Image,
     Linking,
+    Modal,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -18,13 +19,10 @@ import {
 import Slider from '@react-native-community/slider';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-import PhotoPreviewModal from '../components/PhotoPreviewModal';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ACCENT_COLOR, BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, SUCCESS_COLOR, SURFACE_COLOR, WARNING_COLOR } from '../utils/color';
-
-const GALLERY_STORAGE_KEY = '@magnify_gallery';
+import { router } from 'expo-router';
 
 export default function MagnifierScreen() {
     // Camera permissions
@@ -41,8 +39,15 @@ export default function MagnifierScreen() {
     const [showCapturedPhoto, setShowCapturedPhoto] = useState(false);
     const [saving, setSaving] = useState(false);
 
+    // Animation values for photo preview
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const scaleAnim = useRef(new Animated.Value(0.9)).current;
+
     const cameraRef = useRef(null);
     const { width, height } = Dimensions.get('window');
+
+    // Golden ratio for aesthetically pleasing proportions
+    const goldenRatio = 1.618;
 
     // Request permissions when component mounts
     useEffect(() => {
@@ -52,7 +57,6 @@ export default function MagnifierScreen() {
                 await requestPermission();
             }
 
-            // Also request media library permissions
             if (!mediaLibraryPermission?.granted) {
                 await requestMediaLibraryPermission();
             }
@@ -75,6 +79,9 @@ export default function MagnifierScreen() {
 
     // Toggle flashlight
     const toggleFlash = () => {
+        // Provide haptic feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
         setFlashOn(prev => !prev);
         // When turning on flashlight, show intensity slider
         if (!flashOn) {
@@ -87,6 +94,8 @@ export default function MagnifierScreen() {
     // Long press on flashlight to toggle intensity slider
     const handleLongPressFlash = () => {
         if (flashOn) {
+            // Provide haptic feedback for long press
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setShowIntensitySlider(prev => !prev);
         }
     };
@@ -102,6 +111,9 @@ export default function MagnifierScreen() {
             );
             return;
         }
+
+        // Provide haptic feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setFacing(current => (current === 'back' ? 'front' : 'back'));
     };
 
@@ -140,7 +152,9 @@ export default function MagnifierScreen() {
 
                 const photoData = await cameraRef.current.takePictureAsync(options);
                 setPhoto(photoData);
-                setShowCapturedPhoto(true);
+
+                // Display photo with animation
+                showPhotoPreview();
 
                 // Pause the camera preview
                 if (!isFrozen) {
@@ -154,17 +168,57 @@ export default function MagnifierScreen() {
         }
     };
 
-    // Navigate to gallery screen
-    const navigateToGallery = () => {
-        router.push('/gallery');
+    // Show photo preview with animation
+    const showPhotoPreview = () => {
+        setShowCapturedPhoto(true);
+        // Reset animation values
+        fadeAnim.setValue(0);
+        scaleAnim.setValue(0.9);
+
+        // Start animations
+        Animated.parallel([
+            Animated.timing(fadeAnim, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            }),
+            Animated.timing(scaleAnim, {
+                toValue: 1,
+                duration: 350,
+                useNativeDriver: true,
+            }),
+        ]).start();
     };
 
-    // Save photo to gallery and AsyncStorage
+    // Hide photo preview with animation
+    const hidePhotoPreview = (callback = () => { }) => {
+        // Animate out
+        Animated.parallel([
+            Animated.timing(fadeAnim, {
+                toValue: 0,
+                duration: 250,
+                useNativeDriver: true,
+            }),
+            Animated.timing(scaleAnim, {
+                toValue: 0.9,
+                duration: 200,
+                useNativeDriver: true,
+            }),
+        ]).start(() => {
+            setShowCapturedPhoto(false);
+            callback();
+        });
+    };
+
+    // Save photo to gallery
     const savePhoto = async () => {
         if (!photo || !photo.uri) return;
 
         try {
             setSaving(true);
+
+            // Provide haptic feedback while saving begins
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
             // Check if we have media library permissions
             if (!mediaLibraryPermission?.granted) {
@@ -178,77 +232,68 @@ export default function MagnifierScreen() {
                             { text: "Open Settings", onPress: () => Linking.openSettings() }
                         ]
                     );
+                    setSaving(false);
                     return;
                 }
             }
 
-            // Save to device's media library
+            // Save the photo to the gallery
             const asset = await MediaLibrary.createAssetAsync(photo.uri);
 
             // Create an album if needed and add the photo to it
-            let album = await MediaLibrary.getAlbumAsync('Magnify');
+            const album = await MediaLibrary.getAlbumAsync('Magnify');
             if (album === null) {
                 await MediaLibrary.createAlbumAsync('Magnify', asset, false);
             } else {
                 await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
             }
 
-            // Save to AsyncStorage for the gallery screen
-            const photoId = `photo_${Date.now()}`;
-
-            // Copy photo from cache to app's documents directory for persistence
-            const newPath = `${FileSystem.documentDirectory}${photoId}.jpg`;
-            await FileSystem.copyAsync({
-                from: photo.uri,
-                to: newPath
-            });
-
-            // Create photo metadata
-            const newPhoto = {
-                id: photoId,
-                uri: newPath,
-                timestamp: Date.now()
-            };
-
-            // Load existing photos
-            const savedPhotosJSON = await AsyncStorage.getItem(GALLERY_STORAGE_KEY);
-            const savedPhotos = savedPhotosJSON ? JSON.parse(savedPhotosJSON) : [];
-
-            // Add new photo to the beginning of the array
-            const updatedPhotos = [newPhoto, ...savedPhotos];
-
-            // Save updated list
-            await AsyncStorage.setItem(GALLERY_STORAGE_KEY, JSON.stringify(updatedPhotos));
-
-            // Success feedback
+            // Success message
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            Alert.alert(
-                "Success",
-                "Photo saved to gallery",
-                [
-                    {
-                        text: "View All Photos",
-                        onPress: navigateToGallery
-                    },
-                    {
-                        text: "OK",
-                        style: "cancel"
-                    }
-                ]
-            );
+
+            // Hide the photo preview with animation after saving
+            hidePhotoPreview(() => {
+                // Show success toast after the preview has closed
+                Alert.alert("Success", "Photo saved to gallery in the 'Magnify' album");
+                resetPhotoState();
+            });
         } catch (error) {
             console.error("Error saving photo:", error);
             Alert.alert("Error", "Failed to save photo. Please try again.");
-        } finally {
             setSaving(false);
-            discardPhoto(); // Close the preview after saving
         }
+    };
+
+    // Share photo
+    const sharePhoto = async () => {
+        if (!photo || !photo.uri) return;
+
+        try {
+            // Share functionality would go here
+            // This is a placeholder for future implementation
+            Alert.alert("Coming Soon", "Photo sharing will be available in the next update!");
+        } catch (error) {
+            console.error("Error sharing photo:", error);
+            Alert.alert("Error", "Failed to share photo. Please try again.");
+        }
+    };
+
+    // Edit photo
+    const editPhoto = () => {
+        // Edit functionality would go here
+        // This is a placeholder for future implementation
+        Alert.alert("Coming Soon", "Photo editing will be available in the next update!");
     };
 
     // Discard the captured photo
     const discardPhoto = () => {
+        hidePhotoPreview(resetPhotoState);
+    };
+
+    // Reset photo state
+    const resetPhotoState = () => {
         setPhoto(null);
-        setShowCapturedPhoto(false);
+        setSaving(false);
 
         // Resume camera preview if it was frozen
         if (isFrozen && cameraRef.current) {
@@ -269,6 +314,11 @@ export default function MagnifierScreen() {
         );
     };
 
+    const navigateToGallery = () => {
+        // Navigate to gallery page
+        router.push('/gallery');
+    };
+
     // Calculate flash filter opacity based on intensity
     // Invert the intensity for filter - higher intensity means less filter opacity
     const getFlashFilterOpacity = () => {
@@ -278,7 +328,6 @@ export default function MagnifierScreen() {
         return flashOn ? 0.8 - (flashIntensity * 0.8) : 0;
     };
 
-    // Calculate container height to ensure control panel is outside camera view
     // Calculate container height to ensure control panel is outside camera view
     const calculateCameraHeight = () => {
         // The control panel should be placed outside the camera container
@@ -373,6 +422,18 @@ export default function MagnifierScreen() {
                 <View style={styles.toolbar}>
                     <Text style={styles.titleText}>Magnify</Text>
                     <View style={styles.topButtons}>
+                        {/* Gallery button */}
+                        <TouchableOpacity
+                            style={styles.actionButton}
+                            onPress={navigateToGallery}
+                        >
+                            <MaterialCommunityIcons
+                                name="image-multiple"
+                                size={22}
+                                color={SECONDARY_COLOR}
+                            />
+                        </TouchableOpacity>
+
                         {/* Freeze button */}
                         <TouchableOpacity
                             style={[styles.actionButton, isFrozen && styles.actionButtonActive]}
@@ -388,26 +449,17 @@ export default function MagnifierScreen() {
 
                         {/* Camera toggle button */}
                         <TouchableOpacity
-                            style={styles.actionButton}
+                            style={[
+                                styles.actionButton,
+                                isFrozen && styles.actionButtonDisabled
+                            ]}
                             onPress={toggleCamera}
                             disabled={showCapturedPhoto || isFrozen}
                         >
                             <MaterialCommunityIcons
                                 name={facing === 'back' ? 'camera-front' : 'camera-rear'}
                                 size={22}
-                                color={SECONDARY_COLOR}
-                            />
-                        </TouchableOpacity>
-
-                        {/* Gallery button */}
-                        <TouchableOpacity
-                            style={styles.actionButton}
-                            onPress={navigateToGallery}
-                        >
-                            <MaterialCommunityIcons
-                                name="image-multiple"
-                                size={22}
-                                color={SECONDARY_COLOR}
+                                color={isFrozen ? '#a0a0a0' : SECONDARY_COLOR}
                             />
                         </TouchableOpacity>
                     </View>
@@ -450,9 +502,8 @@ export default function MagnifierScreen() {
 
                 {/* Bottom controls */}
                 <View style={styles.bottomControls}>
-                    {/* Flashlight button */}
                     <TouchableOpacity
-                        style={[styles.controlButton, flashOn && styles.flashButtonActive]}
+                        style={[styles.flashButton, flashOn && styles.flashButtonActive]}
                         onPress={toggleFlash}
                         onLongPress={handleLongPressFlash}
                         delayLongPress={500}
@@ -465,39 +516,139 @@ export default function MagnifierScreen() {
                         />
                     </TouchableOpacity>
 
-                    {/* Capture button */}
-                    {
-                        !isFrozen && (
-                            <TouchableOpacity
-                                style={styles.captureButton}
-                                onPress={takePicture}
-                                disabled={showCapturedPhoto}
-                            >
-                                <MaterialCommunityIcons
-                                    name="camera"
-                                    size={24}
-                                    color={BACKGROUND_COLOR}
-                                />
-                            </TouchableOpacity>
-                        )
-                    }
-
                     {/* Intensity label */}
-                    {/* {flashOn && !showCapturedPhoto && (
+                    {flashOn && !showCapturedPhoto && (
                         <Text style={styles.intensityLabel}>
                             {Math.round(flashIntensity * 100)}%
                         </Text>
-                    )} */}
+                    )}
+
+                    {/* Capture Button - With gradient effect */}
+                    <TouchableOpacity
+                        style={styles.captureButton}
+                        onPress={takePicture}
+                        disabled={showCapturedPhoto}
+                        activeOpacity={0.8}
+                    >
+                        <LinearGradient
+                            colors={[PRIMARY_COLOR, SUCCESS_COLOR]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.captureButtonGradient}
+                        >
+                            <MaterialCommunityIcons
+                                name="camera"
+                                size={28}
+                                color={BACKGROUND_COLOR}
+                            />
+                        </LinearGradient>
+                    </TouchableOpacity>
                 </View>
             </View>
 
-            {/* Photo Preview Modal */}
-            <PhotoPreviewModal
+            {/* Improved Photo Preview Modal */}
+            <Modal
                 visible={showCapturedPhoto}
-                photo={photo}
-                onSave={savePhoto}
-                onDiscard={discardPhoto}
-            />
+                transparent={true}
+                animationType="none" // We're handling animation ourselves
+                onRequestClose={discardPhoto}
+            >
+                <View style={styles.modalContainer}>
+                    <StatusBar style="light" />
+
+                    {/* Animated container with scale and fade */}
+                    <Animated.View
+                        style={[
+                            styles.photoPreviewContainer,
+                            {
+                                opacity: fadeAnim,
+                                transform: [{ scale: scaleAnim }]
+                            }
+                        ]}
+                    >
+                        {/* Header */}
+                        <View style={styles.previewHeader}>
+                            <Text style={styles.previewHeaderText}>Preview</Text>
+                            <TouchableOpacity
+                                style={styles.previewCloseButton}
+                                onPress={discardPhoto}
+                            >
+                                <MaterialCommunityIcons name="close" size={24} color={SECONDARY_COLOR} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Image container - using golden ratio for height */}
+                        <View style={[
+                            styles.imageContainer,
+                            {
+                                height: (width * 0.9) / goldenRatio
+                            }
+                        ]}>
+                            <Image
+                                source={{ uri: photo?.uri }}
+                                style={styles.photoPreview}
+                                resizeMode="contain"
+                            />
+
+                            {/* Image quality indicator */}
+                            <View style={styles.qualityBadge}>
+                                <MaterialCommunityIcons name="image-filter-hdr" size={16} color="white" />
+                                <Text style={styles.qualityText}>HD Quality</Text>
+                            </View>
+                        </View>
+
+                        {/* Action buttons in footer */}
+                        <View style={styles.photoActions}>
+                            {/* Edit button */}
+                            <TouchableOpacity
+                                style={styles.photoActionButtonSecondary}
+                                onPress={editPhoto}
+                            >
+                                <MaterialCommunityIcons name="pencil" size={20} color={SECONDARY_COLOR} />
+                                <Text style={styles.photoActionTextSecondary}>Edit</Text>
+                            </TouchableOpacity>
+
+                            {/* Share button */}
+                            <TouchableOpacity
+                                style={styles.photoActionButtonSecondary}
+                                onPress={sharePhoto}
+                            >
+                                <MaterialCommunityIcons name="share-variant" size={20} color={SECONDARY_COLOR} />
+                                <Text style={styles.photoActionTextSecondary}>Share</Text>
+                            </TouchableOpacity>
+
+                            {/* Save button */}
+                            <TouchableOpacity
+                                style={styles.photoActionButtonPrimary}
+                                onPress={savePhoto}
+                                disabled={saving}
+                            >
+                                {saving ? (
+                                    <ActivityIndicator color="white" size="small" />
+                                ) : (
+                                    <MaterialCommunityIcons name="content-save" size={20} color="white" />
+                                )}
+                                <Text style={styles.photoActionTextPrimary}>
+                                    {saving ? 'Saving...' : 'Save'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Animated.View>
+
+                    {/* Bottom info tooltip */}
+                    <Animated.View
+                        style={[
+                            styles.infoTooltip,
+                            { opacity: fadeAnim }
+                        ]}
+                    >
+                        <MaterialCommunityIcons name="information" size={18} color="white" />
+                        <Text style={styles.infoTooltipText}>
+                            Photos are saved in the "Magnify" album
+                        </Text>
+                    </Animated.View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -540,6 +691,25 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: 'bold',
         marginLeft: 5,
+    },
+    captureButton: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: SECONDARY_COLOR,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 3,
+        elevation: 3,
+    },
+    captureButtonGradient: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     loadingContainer: {
         flex: 1,
@@ -637,6 +807,9 @@ const styles = StyleSheet.create({
     actionButtonActive: {
         backgroundColor: SUCCESS_COLOR,
     },
+    actionButtonDisabled: {
+        opacity: 0.5,
+    },
     sliderContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -660,9 +833,10 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        gap: 20,
+        paddingVertical: 10,
+        gap: 40, // Increased spacing between flash and capture buttons
     },
-    controlButton: {
+    flashButton: {
         backgroundColor: SURFACE_COLOR,
         padding: 12,
         borderRadius: 30,
@@ -670,16 +844,122 @@ const styles = StyleSheet.create({
     flashButtonActive: {
         backgroundColor: ACCENT_COLOR,
     },
-    captureButton: {
-        backgroundColor: PRIMARY_COLOR,
-        padding: 12,
-        borderRadius: 30,
-    },
     intensityLabel: {
         position: 'absolute',
-        bottom: -20,
+        bottom: -18,
+        left: 54, // Positioned under the flashlight button
         fontSize: 12,
         color: SECONDARY_COLOR,
         fontWeight: '500',
     },
+    modalContainer: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    photoPreviewContainer: {
+        width: '90%',
+        backgroundColor: BACKGROUND_COLOR,
+        borderRadius: 24,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    previewHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: SURFACE_COLOR,
+    },
+    previewHeaderText: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: SECONDARY_COLOR,
+    },
+    previewCloseButton: {
+        padding: 8,
+        borderRadius: 20,
+    },
+    imageContainer: {
+        width: '100%',
+        backgroundColor: '#f5f5f5',
+    },
+    photoPreview: {
+        width: '100%',
+        height: '100%',
+    },
+    qualityBadge: {
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    qualityText: {
+        color: 'white',
+        marginLeft: 4,
+        fontSize: 12,
+        fontWeight: '500',
+    },
+    photoActions: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+    },
+    photoActionButtonSecondary: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: SURFACE_COLOR,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 20,
+    },
+    photoActionButtonPrimary: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: PRIMARY_COLOR,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 20,
+    },
+    photoActionTextSecondary: {
+        marginLeft: 6,
+        color: SECONDARY_COLOR,
+        fontWeight: '500',
+        fontSize: 14,
+    },
+    photoActionTextPrimary: {
+        marginLeft: 6,
+        color: 'white',
+        fontWeight: '500',
+        fontSize: 14,
+    },
+    infoTooltip: {
+        position: 'absolute',
+        bottom: 40,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+    },
+    infoTooltipText: {
+        marginLeft: 8,
+        color: 'white',
+        fontSize: 14,
+    }
 });
