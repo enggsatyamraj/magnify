@@ -26,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { ACCENT_COLOR, BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, SUCCESS_COLOR, SURFACE_COLOR, WARNING_COLOR } from '../utils/color';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 // Constants for AsyncStorage keys
 const STORAGE_KEY_SAVED_PHOTOS = '@magnify_saved_photos';
@@ -53,6 +54,7 @@ export default function MagnifierScreen() {
     // Filter states
     const [selectedFilter, setSelectedFilter] = useState('normal');
     const [filteredPhotoUri, setFilteredPhotoUri] = useState(null);
+    const [isProcessingFilter, setIsProcessingFilter] = useState(false);
 
     // Animation values for photo preview
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -64,14 +66,71 @@ export default function MagnifierScreen() {
     // Golden ratio for aesthetically pleasing proportions
     const goldenRatio = 1.618;
 
-    // Filter options
+    // Filter options with their configuration
     const filterOptions = [
         { id: 'normal', name: 'Normal' },
-        { id: 'bw', name: 'B&W' },
-        { id: 'sepia', name: 'Sepia' },
-        { id: 'vintage', name: 'Vintage' },
-        { id: 'cool', name: 'Cool' },
-        { id: 'warm', name: 'Warm' }
+        {
+            id: 'bw',
+            name: 'B&W',
+            manipulations: [
+                {
+                    adjust: {
+                        saturation: 0,
+                        contrast: 1.2
+                    }
+                }
+            ]
+        },
+        {
+            id: 'sepia',
+            name: 'Sepia',
+            manipulations: [
+                {
+                    adjust: {
+                        saturation: 0.5,
+                        contrast: 1.1
+                    }
+                },
+                { tint: '#704214' } // Sepia tint color
+            ]
+        },
+        {
+            id: 'vintage',
+            name: 'Vintage',
+            manipulations: [
+                {
+                    adjust: {
+                        saturation: 0.8,
+                        contrast: 0.9
+                    }
+                },
+                { tint: '#FFA500' }
+            ]
+        },
+        {
+            id: 'cool',
+            name: 'Cool',
+            manipulations: [
+                {
+                    adjust: {
+                        saturation: 1.1
+                    }
+                },
+                { tint: '#0066FF' }
+            ]
+        },
+        {
+            id: 'warm',
+            name: 'Warm',
+            manipulations: [
+                {
+                    adjust: {
+                        saturation: 1.1
+                    }
+                },
+                { tint: '#FF6600' }
+            ]
+        }
     ];
 
     // Load saved photo count on mount
@@ -158,7 +217,7 @@ export default function MagnifierScreen() {
 
     // And update the savePhoto function to use the new metadata function:
     const savePhoto = async () => {
-        if (!photo || !photo.uri) return;
+        if (!photo || !filteredPhotoUri) return;
 
         try {
             setSaving(true);
@@ -183,8 +242,11 @@ export default function MagnifierScreen() {
                 }
             }
 
+            // Use the filtered photo URI for saving
+            const uriToSave = filteredPhotoUri;
+
             // Save the photo to the gallery
-            const asset = await MediaLibrary.createAssetAsync(photo.uri);
+            const asset = await MediaLibrary.createAssetAsync(uriToSave);
 
             // Create an album if needed and add the photo to it
             const album = await MediaLibrary.getAlbumAsync('Magnify');
@@ -195,7 +257,7 @@ export default function MagnifierScreen() {
             }
 
             // Save photo metadata to AsyncStorage
-            await savePhotoMetadata(photo.uri);
+            await savePhotoMetadata(uriToSave);
 
             // Success message
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -287,18 +349,36 @@ export default function MagnifierScreen() {
     };
 
     // Apply filter to photo
-    const applyFilter = (filterId) => {
-        setSelectedFilter(filterId);
-        // Process image with selected filter
-        processImageWithFilter(photo.uri, filterId);
-    };
+    // @ts-ignore
+    const applyFilter = async (filterId) => {
+        if (!photo || !photo.uri) return;
 
-    // Process image with filter and save to temporary file
-    const processImageWithFilter = async (imageUri, filterId) => {
-        // For the demo, we're just setting the filtered URI directly
-        // In a real application, you would apply actual image processing
-        // and save the processed image to a temporary file
-        setFilteredPhotoUri(imageUri);
+        setSelectedFilter(filterId);
+        setIsProcessingFilter(true);
+
+        try {
+            const filterConfig = filterOptions.find(f => f.id === filterId);
+
+            if (filterId === 'normal') {
+                setFilteredPhotoUri(photo.uri);
+                setIsProcessingFilter(false);
+                return;
+            }
+
+            const result = await ImageManipulator.manipulateAsync(
+                photo.uri,
+                filterConfig.manipulations,
+                { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+            );
+
+            setFilteredPhotoUri(result.uri);
+        } catch (error) {
+            console.error("Error applying filter:", error);
+            setFilteredPhotoUri(photo.uri);
+            Alert.alert("Filter Error", "Could not apply the selected filter. Using original image.");
+        } finally {
+            setIsProcessingFilter(false);
+        }
     };
 
     // Take a picture
@@ -318,6 +398,8 @@ export default function MagnifierScreen() {
 
                 const photoData = await cameraRef.current.takePictureAsync(options);
                 setPhoto(photoData);
+
+                // Initially set filtered URI to the original photo
                 setFilteredPhotoUri(photoData.uri);
                 setSelectedFilter('normal');
 
@@ -378,10 +460,9 @@ export default function MagnifierScreen() {
         });
     };
 
-
     // Share photo
     const sharePhoto = async () => {
-        if (!photo || !photo.uri) return;
+        if (!photo || !filteredPhotoUri) return;
 
         try {
             // Share functionality would go here
@@ -698,35 +779,17 @@ export default function MagnifierScreen() {
 
                         {/* Image container */}
                         <View style={styles.imageContainerFullscreen}>
-                            <Image
-                                source={{ uri: filteredPhotoUri || photo?.uri }}
-                                style={styles.photoPreviewFullscreen}
-                                resizeMode="contain"
-                            />
-
-                            {/* Apply black and white filter overlay */}
-                            {selectedFilter === 'bw' && (
-                                <View style={styles.bwFilter} />
-                            )}
-
-                            {/* Apply sepia filter overlay */}
-                            {selectedFilter === 'sepia' && (
-                                <View style={styles.sepiaFilter} />
-                            )}
-
-                            {/* Apply vintage filter overlay */}
-                            {selectedFilter === 'vintage' && (
-                                <View style={styles.vintageFilter} />
-                            )}
-
-                            {/* Apply cool filter overlay */}
-                            {selectedFilter === 'cool' && (
-                                <View style={styles.coolFilter} />
-                            )}
-
-                            {/* Apply warm filter overlay */}
-                            {selectedFilter === 'warm' && (
-                                <View style={styles.warmFilter} />
+                            {isProcessingFilter ? (
+                                <View style={styles.filterLoadingContainer}>
+                                    <ActivityIndicator color="white" size="large" />
+                                    <Text style={styles.filterLoadingText}>Applying filter...</Text>
+                                </View>
+                            ) : (
+                                <Image
+                                    source={{ uri: filteredPhotoUri || photo?.uri }}
+                                    style={styles.photoPreviewFullscreen}
+                                    resizeMode="contain"
+                                />
                             )}
 
                             {/* Quality badge */}
@@ -737,7 +800,7 @@ export default function MagnifierScreen() {
                         </View>
 
                         {/* Filter selection row */}
-                        <ScrollView
+                        {/* <ScrollView
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             style={styles.filterScrollView}
@@ -751,6 +814,7 @@ export default function MagnifierScreen() {
                                         selectedFilter === filter.id && styles.filterOptionSelected
                                     ]}
                                     onPress={() => applyFilter(filter.id)}
+                                    disabled={isProcessingFilter}
                                 >
                                     <Text style={[
                                         styles.filterText,
@@ -760,33 +824,35 @@ export default function MagnifierScreen() {
                                     </Text>
                                 </TouchableOpacity>
                             ))}
-                        </ScrollView>
+                        </ScrollView> */}
 
                         {/* Action buttons in footer */}
                         <View style={styles.photoActionsFullscreen}>
                             {/* Edit button */}
-                            <TouchableOpacity
+                            {/* <TouchableOpacity
                                 style={styles.photoActionButtonFullscreen}
                                 onPress={editPhoto}
+                                disabled={isProcessingFilter}
                             >
                                 <MaterialCommunityIcons name="pencil" size={20} color="white" />
                                 <Text style={styles.photoActionTextFullscreen}>Edit</Text>
-                            </TouchableOpacity>
+                            </TouchableOpacity> */}
 
                             {/* Share button */}
-                            <TouchableOpacity
+                            {/* <TouchableOpacity
                                 style={styles.photoActionButtonFullscreen}
                                 onPress={sharePhoto}
+                                disabled={isProcessingFilter}
                             >
                                 <MaterialCommunityIcons name="share-variant" size={20} color="white" />
                                 <Text style={styles.photoActionTextFullscreen}>Share</Text>
-                            </TouchableOpacity>
+                            </TouchableOpacity> */}
 
                             {/* Save button */}
                             <TouchableOpacity
                                 style={styles.photoActionButtonSaveFullscreen}
                                 onPress={savePhoto}
-                                disabled={saving}
+                                disabled={saving || isProcessingFilter}
                             >
                                 {saving ? (
                                     <ActivityIndicator color="white" size="small" />
@@ -1081,56 +1147,22 @@ const styles = StyleSheet.create({
         height: '100%',
         resizeMode: 'contain',
     },
-    // Filter overlays
-    bwFilter: {
+    // Filter loading indicator
+    filterLoadingContainer: {
         position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'transparent',
-        mixBlendMode: 'saturation',
-        opacity: 1,
-        // For React Native, which doesn't support mixBlendMode:
-        ...(Platform.OS !== 'web' && {
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        }),
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
     },
-    sepiaFilter: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(112, 66, 20, 0.2)',
-        opacity: 0.7,
-    },
-    vintageFilter: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(255, 125, 0, 0.15)',
-        opacity: 0.7,
-    },
-    coolFilter: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 109, 255, 0.1)',
-        opacity: 0.7,
-    },
-    warmFilter: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(255, 109, 0, 0.1)',
-        opacity: 0.7,
+    filterLoadingText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '500',
+        marginTop: 12,
     },
     qualityBadgeFullscreen: {
         position: 'absolute',
