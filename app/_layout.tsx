@@ -3,9 +3,10 @@ import React from 'react'
 
 export default function RootLayout() {
     return (
-        <Stack>
-            <Stack.Screen name='index' options={{ headerShown: false }} />
-            <Stack.Screen name='mainscreen' options={{ headerShown: false }} />
+        <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+            <Stack.Screen name='index' />
+            <Stack.Screen name='mainscreen' />
+            <Stack.Screen name='gallery' />
         </Stack>
     )
 }

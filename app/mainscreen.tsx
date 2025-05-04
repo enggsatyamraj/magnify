@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
+import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -9,7 +10,6 @@ import {
     Dimensions,
     Image,
     Linking,
-    Modal,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -18,8 +18,13 @@ import {
 import Slider from '@react-native-community/slider';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import PhotoPreviewModal from '../components/PhotoPreviewModal';
 import { ACCENT_COLOR, BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, SUCCESS_COLOR, SURFACE_COLOR, WARNING_COLOR } from '../utils/color';
+
+const GALLERY_STORAGE_KEY = '@magnify_gallery';
 
 export default function MagnifierScreen() {
     // Camera permissions
@@ -47,6 +52,7 @@ export default function MagnifierScreen() {
                 await requestPermission();
             }
 
+            // Also request media library permissions
             if (!mediaLibraryPermission?.granted) {
                 await requestMediaLibraryPermission();
             }
@@ -148,7 +154,12 @@ export default function MagnifierScreen() {
         }
     };
 
-    // Save photo to gallery
+    // Navigate to gallery screen
+    const navigateToGallery = () => {
+        router.push('/gallery');
+    };
+
+    // Save photo to gallery and AsyncStorage
     const savePhoto = async () => {
         if (!photo || !photo.uri) return;
 
@@ -167,31 +178,70 @@ export default function MagnifierScreen() {
                             { text: "Open Settings", onPress: () => Linking.openSettings() }
                         ]
                     );
-                    setSaving(false);
                     return;
                 }
             }
 
-            // Save the photo to the gallery
+            // Save to device's media library
             const asset = await MediaLibrary.createAssetAsync(photo.uri);
 
             // Create an album if needed and add the photo to it
-            const album = await MediaLibrary.getAlbumAsync('Magnify');
+            let album = await MediaLibrary.getAlbumAsync('Magnify');
             if (album === null) {
                 await MediaLibrary.createAlbumAsync('Magnify', asset, false);
             } else {
                 await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
             }
 
-            // Success message
+            // Save to AsyncStorage for the gallery screen
+            const photoId = `photo_${Date.now()}`;
+
+            // Copy photo from cache to app's documents directory for persistence
+            const newPath = `${FileSystem.documentDirectory}${photoId}.jpg`;
+            await FileSystem.copyAsync({
+                from: photo.uri,
+                to: newPath
+            });
+
+            // Create photo metadata
+            const newPhoto = {
+                id: photoId,
+                uri: newPath,
+                timestamp: Date.now()
+            };
+
+            // Load existing photos
+            const savedPhotosJSON = await AsyncStorage.getItem(GALLERY_STORAGE_KEY);
+            const savedPhotos = savedPhotosJSON ? JSON.parse(savedPhotosJSON) : [];
+
+            // Add new photo to the beginning of the array
+            const updatedPhotos = [newPhoto, ...savedPhotos];
+
+            // Save updated list
+            await AsyncStorage.setItem(GALLERY_STORAGE_KEY, JSON.stringify(updatedPhotos));
+
+            // Success feedback
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            Alert.alert("Success", "Photo saved to gallery in the 'Magnify' album");
+            Alert.alert(
+                "Success",
+                "Photo saved to gallery",
+                [
+                    {
+                        text: "View All Photos",
+                        onPress: navigateToGallery
+                    },
+                    {
+                        text: "OK",
+                        style: "cancel"
+                    }
+                ]
+            );
         } catch (error) {
             console.error("Error saving photo:", error);
             Alert.alert("Error", "Failed to save photo. Please try again.");
         } finally {
             setSaving(false);
-            discardPhoto();
+            discardPhoto(); // Close the preview after saving
         }
     };
 
@@ -228,6 +278,7 @@ export default function MagnifierScreen() {
         return flashOn ? 0.8 - (flashIntensity * 0.8) : 0;
     };
 
+    // Calculate container height to ensure control panel is outside camera view
     // Calculate container height to ensure control panel is outside camera view
     const calculateCameraHeight = () => {
         // The control panel should be placed outside the camera container
@@ -316,17 +367,6 @@ export default function MagnifierScreen() {
                 )}
             </View>
 
-            {/* Capture Button - Positioned over the camera but below controls */}
-            {/* <View style={styles.captureButtonContainer}>
-                <TouchableOpacity
-                    style={styles.captureButton}
-                    onPress={takePicture}
-                    disabled={showCapturedPhoto}
-                >
-                    <View style={styles.captureButtonInner} />
-                </TouchableOpacity>
-            </View> */}
-
             {/* Control panel - positioned outside the camera container, no filter applied here */}
             <View style={styles.controlsContainer}>
                 {/* Top toolbar */}
@@ -350,10 +390,22 @@ export default function MagnifierScreen() {
                         <TouchableOpacity
                             style={styles.actionButton}
                             onPress={toggleCamera}
-                            disabled={showCapturedPhoto}
+                            disabled={showCapturedPhoto || isFrozen}
                         >
                             <MaterialCommunityIcons
                                 name={facing === 'back' ? 'camera-front' : 'camera-rear'}
+                                size={22}
+                                color={SECONDARY_COLOR}
+                            />
+                        </TouchableOpacity>
+
+                        {/* Gallery button */}
+                        <TouchableOpacity
+                            style={styles.actionButton}
+                            onPress={navigateToGallery}
+                        >
+                            <MaterialCommunityIcons
+                                name="image-multiple"
                                 size={22}
                                 color={SECONDARY_COLOR}
                             />
@@ -398,8 +450,9 @@ export default function MagnifierScreen() {
 
                 {/* Bottom controls */}
                 <View style={styles.bottomControls}>
+                    {/* Flashlight button */}
                     <TouchableOpacity
-                        style={[styles.flashButton, flashOn && styles.flashButtonActive]}
+                        style={[styles.controlButton, flashOn && styles.flashButtonActive]}
                         onPress={toggleFlash}
                         onLongPress={handleLongPressFlash}
                         delayLongPress={500}
@@ -412,75 +465,39 @@ export default function MagnifierScreen() {
                         />
                     </TouchableOpacity>
 
+                    {/* Capture button */}
+                    {
+                        !isFrozen && (
+                            <TouchableOpacity
+                                style={styles.captureButton}
+                                onPress={takePicture}
+                                disabled={showCapturedPhoto}
+                            >
+                                <MaterialCommunityIcons
+                                    name="camera"
+                                    size={24}
+                                    color={BACKGROUND_COLOR}
+                                />
+                            </TouchableOpacity>
+                        )
+                    }
+
                     {/* Intensity label */}
-                    {flashOn && !showCapturedPhoto && (
+                    {/* {flashOn && !showCapturedPhoto && (
                         <Text style={styles.intensityLabel}>
                             {Math.round(flashIntensity * 100)}%
                         </Text>
-                    )}
-
-                    {/* Capture Button - Now placed inline with flashlight */}
-                    <TouchableOpacity
-                        style={styles.captureButton}
-                        onPress={takePicture}
-                        disabled={showCapturedPhoto}
-                    >
-                        <View style={styles.captureButtonInner}>
-                            <MaterialCommunityIcons
-                                name="camera"
-                                size={28}
-                                color={SECONDARY_COLOR}
-                            />
-                        </View>
-                    </TouchableOpacity>
-
-
+                    )} */}
                 </View>
             </View>
 
             {/* Photo Preview Modal */}
-            <Modal
+            <PhotoPreviewModal
                 visible={showCapturedPhoto}
-                transparent={true}
-                animationType="fade"
-                onRequestClose={discardPhoto}
-            >
-                <View style={styles.modalContainer}>
-                    <View style={styles.photoPreviewContainer}>
-                        <Image
-                            source={{ uri: photo?.uri }}
-                            style={styles.photoPreview}
-                            resizeMode="contain"
-                        />
-
-                        <View style={styles.photoActions}>
-                            <TouchableOpacity
-                                style={[styles.photoActionButton, styles.discardButton]}
-                                onPress={discardPhoto}
-                                disabled={saving}
-                            >
-                                <MaterialCommunityIcons name="close" size={28} color="white" />
-                                <Text style={styles.photoActionText}>Discard</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={[styles.photoActionButton, styles.saveButton]}
-                                onPress={savePhoto}
-                                disabled={saving}
-                            >
-                                {saving ? (
-                                    <ActivityIndicator color="white" size="small" />
-                                ) : (
-                                    <>
-                                        <MaterialCommunityIcons name="content-save" size={28} color="white" />
-                                        <Text style={styles.photoActionText}>Save</Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
+                photo={photo}
+                onSave={savePhoto}
+                onDiscard={discardPhoto}
+            />
         </SafeAreaView>
     );
 }
@@ -523,29 +540,6 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: 'bold',
         marginLeft: 5,
-    },
-    captureButton: {
-        width: 50,
-        height: 50,
-        borderRadius: 30,
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: SECONDARY_COLOR,
-        // borderWidth: 1,
-        // borderColor: '#000',
-        backgroundColor: SURFACE_COLOR
-        // shadowOffset: { width: 0, height: 2 },
-        // shadowOpacity: 0.2,
-        // shadowRadius: 3,
-        // elevation: 3,
-    },
-    captureButtonInner: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
-        // backgroundColor: PRIMARY_COLOR, // Change from white to PRIMARY_COLOR
-        justifyContent: 'center',
-        alignItems: 'center',
     },
     loadingContainer: {
         flex: 1,
@@ -643,11 +637,6 @@ const styles = StyleSheet.create({
     actionButtonActive: {
         backgroundColor: SUCCESS_COLOR,
     },
-    cameraToggle: {
-        padding: 8,
-        borderRadius: 20,
-        backgroundColor: SURFACE_COLOR,
-    },
     sliderContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -671,10 +660,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: 10,
-        gap: 10, // Add spacing between elements
+        gap: 20,
     },
-    flashButton: {
+    controlButton: {
         backgroundColor: SURFACE_COLOR,
         padding: 12,
         borderRadius: 30,
@@ -682,55 +670,16 @@ const styles = StyleSheet.create({
     flashButtonActive: {
         backgroundColor: ACCENT_COLOR,
     },
+    captureButton: {
+        backgroundColor: PRIMARY_COLOR,
+        padding: 12,
+        borderRadius: 30,
+    },
     intensityLabel: {
-        marginTop: 8,
+        position: 'absolute',
+        bottom: -20,
         fontSize: 12,
         color: SECONDARY_COLOR,
         fontWeight: '500',
-    },
-    modalContainer: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    photoPreviewContainer: {
-        width: '90%',
-        height: '80%',
-        backgroundColor: 'black',
-        borderRadius: 12,
-        overflow: 'hidden',
-        elevation: 5,
-    },
-    photoPreview: {
-        width: '100%',
-        height: '85%',
-    },
-    photoActions: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        alignItems: 'center',
-        paddingVertical: 15,
-        height: '15%',
-    },
-    photoActionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 8,
-        paddingHorizontal: 20,
-        borderRadius: 30,
-        justifyContent: 'center',
-    },
-    discardButton: {
-        backgroundColor: SECONDARY_COLOR,
-    },
-    saveButton: {
-        backgroundColor: SUCCESS_COLOR,
-    },
-    photoActionText: {
-        color: 'white',
-        fontWeight: 'bold',
-        marginLeft: 8,
-        fontSize: 16,
     },
 });
