@@ -1,23 +1,41 @@
 /**
- * Soft Sand
- * Used as the main background/base color throughout the app.
+ * Google Blue
+ * Used as the primary color for the app, including buttons, active elements, and app bar.
  */
-export const BACKGROUND_COLOR = '#F3F3E0';
+export const PRIMARY_COLOR = '#1a73e8';
 
 /**
- * Ocean Blue
- * Used for primary UI elements: buttons, links, active icons.
+ * Google Red
+ * Used as the accent color for important actions, alerts, and highlighting elements.
  */
-export const PRIMARY_COLOR = '#27548A';
+export const ACCENT_COLOR = '#ea4335';
 
 /**
- * Deep Sea
- * Used for secondary elements: headers, footers, text bodies, borders.
+ * Pure White 
+ * Used as the main background color for light mode.
  */
-export const SECONDARY_COLOR = '#183B4E';
+export const BACKGROUND_COLOR = '#ffffff';
 
 /**
- * Sunlit Gold
- * Used sparingly as an accent/highlight: badges, call-to-action, notifications.
+ * Dark Gray
+ * Used for text color, icons, and for providing contrast against the white background.
  */
-export const ACCENT_COLOR = '#DDA853';
+export const SECONDARY_COLOR = '#202124';
+
+/**
+ * Light Gray
+ * Used for inactive elements, borders, dividers, and secondary backgrounds.
+ */
+export const SURFACE_COLOR = '#f1f3f4';
+
+/**
+ * Google Green
+ * Used for success indicators, positive actions, and progress elements.
+ */
+export const SUCCESS_COLOR = '#34a853';
+
+/**
+ * Google Yellow
+ * Used for warnings, pending states, and secondary highlights.
+ */
+export const WARNING_COLOR = '#fbbc04';
