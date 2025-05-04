@@ -8,7 +8,9 @@ import {
     Image,
     ActivityIndicator,
     StatusBar,
-    Dimensions
+    Dimensions,
+    Alert,
+    Platform
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -19,6 +21,9 @@ import Animated, {
     withTiming,
     useDerivedValue
 } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import Share from 'react-native-share';
+import * as FileSystem from 'expo-file-system';
 
 // Import colors from your utils
 import { PRIMARY_COLOR, SECONDARY_COLOR, BACKGROUND_COLOR, ACCENT_COLOR, SUCCESS_COLOR } from '../utils/color';
@@ -27,6 +32,7 @@ const { width, height } = Dimensions.get('window');
 
 const PhotoPreviewModal = ({ visible, photo, onSave, onDiscard }) => {
     const [saving, setSaving] = useState(false);
+    const [sharing, setSharing] = useState(false);
 
     // Pinch zoom functionality
     const scale = useSharedValue(1);
@@ -91,6 +97,54 @@ const PhotoPreviewModal = ({ visible, photo, onSave, onDiscard }) => {
         }
     };
 
+    // Handle share functionality
+    const handleShare = async () => {
+        if (!photo || !photo.uri) return;
+
+        try {
+            setSharing(true);
+            // Provide haptic feedback
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+            // Read the image as base64
+            const base64Data = await FileSystem.readAsStringAsync(photo.uri, {
+                encoding: FileSystem.EncodingType.Base64,
+            });
+
+            // Determine mime type (usually jpg for photos)
+            const mimeType = 'image/jpeg';
+
+            // Create the sharing options
+            const shareOptions = {
+                title: 'Share Photo',
+                message: 'Check out this photo from Magnify!',
+                url: `data:${mimeType};base64,${base64Data}`,
+                type: mimeType,
+            };
+
+            // Show the share dialog
+            const result = await Share.open(shareOptions);
+            console.log('Share result:', result);
+
+        } catch (error) {
+            console.error("Error sharing photo:", error);
+
+            // Handle the case when user cancels sharing
+            if (error.message === 'User did not share' ||
+                error.message === 'User canceled' ||
+                error.message.includes('cancel')) {
+                console.log('User canceled sharing');
+                // Just return silently without showing an error
+                return;
+            }
+
+            // Only show alert for actual errors, not user cancellations
+            Alert.alert("Error", "Failed to share photo. Please try again.");
+        } finally {
+            setSharing(false);
+        }
+    };
+
     // If the modal is not visible, return null
     if (!visible) return null;
 
@@ -140,16 +194,35 @@ const PhotoPreviewModal = ({ visible, photo, onSave, onDiscard }) => {
                     <TouchableOpacity
                         style={[styles.actionButton, styles.discardButton]}
                         onPress={onDiscard}
-                        disabled={saving}
+                        disabled={saving || sharing}
                     >
                         <MaterialCommunityIcons name="delete-outline" size={24} color="white" />
                         <Text style={styles.actionText}>Discard</Text>
                     </TouchableOpacity>
 
+                    {/* Share button */}
+                    <TouchableOpacity
+                        style={[styles.actionButton, styles.shareButton]}
+                        onPress={handleShare}
+                        disabled={saving || sharing}
+                    >
+                        {sharing ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator color="white" size="small" />
+                                <Text style={styles.actionText}>Sharing...</Text>
+                            </View>
+                        ) : (
+                            <>
+                                <MaterialCommunityIcons name="share-variant" size={24} color="white" />
+                                <Text style={styles.actionText}>Share</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+
                     <TouchableOpacity
                         style={[styles.actionButton, styles.saveButton]}
                         onPress={handleSave}
-                        disabled={saving}
+                        disabled={saving || sharing}
                     >
                         {saving ? (
                             <View style={styles.loadingContainer}>
@@ -238,12 +311,15 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: 10,
-        paddingHorizontal: 24,
+        paddingHorizontal: 20,
         borderRadius: 24,
-        minWidth: 140,
+        minWidth: 110,
     },
     discardButton: {
         backgroundColor: SECONDARY_COLOR,
+    },
+    shareButton: {
+        backgroundColor: ACCENT_COLOR,
     },
     saveButton: {
         backgroundColor: SUCCESS_COLOR,

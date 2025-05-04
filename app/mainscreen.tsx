@@ -27,6 +27,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { ACCENT_COLOR, BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, SUCCESS_COLOR, SURFACE_COLOR, WARNING_COLOR } from '../utils/color';
 import * as ImageManipulator from 'expo-image-manipulator';
+import Share from 'react-native-share';
 
 // Constants for AsyncStorage keys
 const STORAGE_KEY_SAVED_PHOTOS = '@magnify_saved_photos';
@@ -465,14 +466,51 @@ export default function MagnifierScreen() {
         if (!photo || !filteredPhotoUri) return;
 
         try {
-            // Share functionality would go here
-            // This is a placeholder for future implementation
-            Alert.alert("Coming Soon", "Photo sharing will be available in the next update!");
+            // Provide haptic feedback
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+            // Set loading state
+            setSaving(true);
+
+            // Read the image as base64
+            const base64Data = await FileSystem.readAsStringAsync(filteredPhotoUri, {
+                encoding: FileSystem.EncodingType.Base64,
+            });
+
+            // Determine mime type (usually jpg for photos)
+            const mimeType = 'image/jpeg';
+
+            // Create the sharing options
+            const shareOptions = {
+                title: 'Share Photo',
+                message: 'Check out this photo from Magnify!',
+                url: `data:${mimeType};base64,${base64Data}`,
+                type: mimeType,
+            };
+
+            // Show the share dialog
+            const result = await Share.open(shareOptions);
+            console.log('Share result:', result);
+
         } catch (error) {
             console.error("Error sharing photo:", error);
+
+            // Handle the case when user cancels sharing
+            if (error.message === 'User did not share' ||
+                error.message === 'User canceled' ||
+                error.message.includes('cancel')) {
+                console.log('User canceled sharing');
+                // Just return silently without showing an error
+                return;
+            }
+
+            // Only show alert for actual errors, not user cancellations
             Alert.alert("Error", "Failed to share photo. Please try again.");
+        } finally {
+            setSaving(false);
         }
     };
+
 
     // Edit photo
     const editPhoto = () => {
