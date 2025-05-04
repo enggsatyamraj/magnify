@@ -799,54 +799,18 @@ export default function MagnifierScreen() {
                             </View>
                         </View>
 
-                        {/* Filter selection row */}
-                        {/* <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            style={styles.filterScrollView}
-                            contentContainerStyle={styles.filterContainer}
-                        >
-                            {filterOptions.map((filter) => (
-                                <TouchableOpacity
-                                    key={filter.id}
-                                    style={[
-                                        styles.filterOption,
-                                        selectedFilter === filter.id && styles.filterOptionSelected
-                                    ]}
-                                    onPress={() => applyFilter(filter.id)}
-                                    disabled={isProcessingFilter}
-                                >
-                                    <Text style={[
-                                        styles.filterText,
-                                        selectedFilter === filter.id && styles.filterTextSelected
-                                    ]}>
-                                        {filter.name}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView> */}
-
                         {/* Action buttons in footer */}
                         <View style={styles.photoActionsFullscreen}>
-                            {/* Edit button */}
-                            {/* <TouchableOpacity
-                                style={styles.photoActionButtonFullscreen}
-                                onPress={editPhoto}
-                                disabled={isProcessingFilter}
-                            >
-                                <MaterialCommunityIcons name="pencil" size={20} color="white" />
-                                <Text style={styles.photoActionTextFullscreen}>Edit</Text>
-                            </TouchableOpacity> */}
 
                             {/* Share button */}
-                            {/* <TouchableOpacity
+                            <TouchableOpacity
                                 style={styles.photoActionButtonFullscreen}
                                 onPress={sharePhoto}
                                 disabled={isProcessingFilter}
                             >
                                 <MaterialCommunityIcons name="share-variant" size={20} color="white" />
                                 <Text style={styles.photoActionTextFullscreen}>Share</Text>
-                            </TouchableOpacity> */}
+                            </TouchableOpacity>
 
                             {/* Save button */}
                             <TouchableOpacity
