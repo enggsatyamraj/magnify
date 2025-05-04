@@ -10,7 +10,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.enggsatyamraj.magnify"
+      "bundleIdentifier": "com.enggsatyamraj.magnify",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Magnify needs access to your camera to provide magnification functionality.",
+        "NSPhotoLibraryUsageDescription": "Magnify needs access to your photo library to save photos.",
+        "NSPhotoLibraryAddUsageDescription": "Magnify needs access to save photos to your gallery.",
+        "NSMicrophoneUsageDescription": "This app does not use the microphone"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +24,13 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.enggsatyamraj.magnify"
+      "package": "com.enggsatyamraj.magnify",
+      "permissions": [
+        "CAMERA",
+        "FLASHLIGHT",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -28,12 +40,17 @@
     "plugins": [
       "expo-router",
       [
-        "expo-splash-screen",
+        "expo-camera",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "cameraPermission": "Magnify needs access to your camera to provide magnification functionality."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Magnify needs access to your media library to save photos.",
+          "savePhotosPermission": "Magnify needs access to save photos to your gallery.",
+          "isAccessMediaLocationEnabled": true
         }
       ]
     ],

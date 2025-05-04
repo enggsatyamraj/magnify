@@ -5,6 +5,7 @@ import { ActivityIndicator, Animated, Dimensions, StyleSheet, Text, View } from 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, SUCCESS_COLOR } from '../utils/color';
 import { APP_NAME } from '../utils/constant';
+import { router } from 'expo-router';
 
 export default function SplashScreen() {
     // Get screen dimensions to apply golden ratio
@@ -42,6 +43,16 @@ export default function SplashScreen() {
             }),
         ]).start();
     }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            router.replace('/mainscreen');
+        }, 3000)
+
+        return () => {
+            clearTimeout(timer);
+        }
+    }, [])
 
     return (
         <SafeAreaView style={styles.container}>
