@@ -28,6 +28,8 @@ import { useRouter } from 'expo-router';
 import { ACCENT_COLOR, BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, SUCCESS_COLOR, SURFACE_COLOR, WARNING_COLOR } from '../utils/color';
 import * as ImageManipulator from 'expo-image-manipulator';
 import Share from 'react-native-share';
+import { BannerAd, BannerAdSize, TestIds, useForeground } from 'react-native-google-mobile-ads';
+
 
 // Constants for AsyncStorage keys
 const STORAGE_KEY_SAVED_PHOTOS = '@magnify_saved_photos';
@@ -35,6 +37,9 @@ const STORAGE_KEY_SAVED_PHOTOS = '@magnify_saved_photos';
 export default function MagnifierScreen() {
     // Router for navigation
     const router = useRouter();
+    const adUnitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : 'ca-app-pub-4617429631705779~7243263837';
+    // const bannerRef = useRef < BannerAd > null;
+
 
     // Camera permissions
     const [permission, requestPermission] = useCameraPermissions();
@@ -612,6 +617,9 @@ export default function MagnifierScreen() {
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar style="dark" />
+
+            <BannerAd unitId={adUnitId} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />
+
 
             <View style={[
                 styles.cameraContainer,

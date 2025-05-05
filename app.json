@@ -52,6 +52,13 @@
           "savePhotosPermission": "Magnify needs access to save photos to your gallery.",
           "isAccessMediaLocationEnabled": true
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-4617429631705779~7243263837",
+          "iosAppId": "ca-app-pub-4617429631705779~7243263837"
+        }
       ]
     ],
     "experiments": {
