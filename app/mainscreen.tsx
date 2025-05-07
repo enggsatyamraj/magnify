@@ -47,6 +47,7 @@ export default function MagnifierScreen() {
     const [facing, setFacing] = useState<CameraType>('back');
     const [flashOn, setFlashOn] = useState(false);
     const [zoomLevel, setZoomLevel] = useState(0);
+    const [superZoomActive, setSuperZoomActive] = useState(false); // New state for 100x zoom
     const [flashIntensity, setFlashIntensity] = useState(0.5);
     const [showIntensitySlider, setShowIntensitySlider] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -65,6 +66,10 @@ export default function MagnifierScreen() {
     // Animation values for photo preview
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const scaleAnim = useRef(new Animated.Value(0.9)).current;
+
+    // Animation values for super zoom effect
+    const superZoomScale = useRef(new Animated.Value(1)).current;
+    const superZoomOpacity = useRef(new Animated.Value(0)).current;
 
     const cameraRef = useRef(null);
     const { width, height } = Dimensions.get('window');
@@ -289,6 +294,10 @@ export default function MagnifierScreen() {
     // Handle zoom slider change
     const handleZoomChange = (value) => {
         setZoomLevel(value);
+        // Disable super zoom if regular zoom is being adjusted
+        if (superZoomActive && value < 0.8) {
+            toggleSuperZoom();
+        }
     };
 
     // Handle flashlight intensity change
@@ -307,6 +316,51 @@ export default function MagnifierScreen() {
             setShowIntensitySlider(true);
         } else {
             setShowIntensitySlider(false);
+        }
+    };
+
+    // Toggle 100x super zoom mode
+    const toggleSuperZoom = () => {
+        // Provide haptic feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        const newSuperZoomState = !superZoomActive;
+        setSuperZoomActive(newSuperZoomState);
+
+        if (newSuperZoomState) {
+            // Set zoom to maximum when super zoom is activated
+            setZoomLevel(1);
+
+            // Animate zoom effect indicator
+            Animated.sequence([
+                Animated.parallel([
+                    Animated.timing(superZoomOpacity, {
+                        toValue: 0.8,
+                        duration: 300,
+                        useNativeDriver: true
+                    }),
+                    Animated.timing(superZoomScale, {
+                        toValue: 1.5,
+                        duration: 300,
+                        useNativeDriver: true
+                    })
+                ]),
+                Animated.parallel([
+                    Animated.timing(superZoomOpacity, {
+                        toValue: 0,
+                        duration: 500,
+                        useNativeDriver: true
+                    }),
+                    Animated.timing(superZoomScale, {
+                        toValue: 2,
+                        duration: 500,
+                        useNativeDriver: true
+                    })
+                ])
+            ]).start();
+        } else {
+            // Return to normal zoom level when super zoom is deactivated
+            setZoomLevel(0.5);
         }
     };
 
@@ -646,6 +700,29 @@ export default function MagnifierScreen() {
                     />
                 )}
 
+                {/* 100x Super Zoom Animation Overlay */}
+                {superZoomActive && (
+                    <Animated.View
+                        style={[
+                            styles.superZoomOverlay,
+                            {
+                                opacity: superZoomOpacity,
+                                transform: [{ scale: superZoomScale }]
+                            }
+                        ]}
+                    >
+                        <Text style={styles.superZoomText}>100x</Text>
+                    </Animated.View>
+                )}
+
+                {/* Super Zoom Indicator - always show when active */}
+                {superZoomActive && (
+                    <View style={styles.superZoomIndicator}>
+                        <MaterialCommunityIcons name="magnify-plus" size={16} color="white" />
+                        <Text style={styles.superZoomIndicatorText}>100x</Text>
+                    </View>
+                )}
+
                 {/* Freeze indicator overlay */}
                 {isFrozen && (
                     <View style={styles.frozenOverlay}>
@@ -748,6 +825,7 @@ export default function MagnifierScreen() {
 
                 {/* Bottom controls */}
                 <View style={styles.bottomControls}>
+                    {/* Flashlight button */}
                     <TouchableOpacity
                         style={[styles.flashButton, flashOn && styles.flashButtonActive]}
                         onPress={toggleFlash}
@@ -760,6 +838,25 @@ export default function MagnifierScreen() {
                             size={24}
                             color={flashOn ? BACKGROUND_COLOR : SECONDARY_COLOR}
                         />
+                    </TouchableOpacity>
+
+                    {/* 100x Super Zoom Button - NEW BUTTON */}
+                    <TouchableOpacity
+                        style={[styles.superZoomButton, superZoomActive && styles.superZoomButtonActive]}
+                        onPress={toggleSuperZoom}
+                        disabled={showCapturedPhoto}
+                    >
+                        <MaterialCommunityIcons
+                            name="magnify-plus-outline"
+                            size={24}
+                            color={superZoomActive ? BACKGROUND_COLOR : SECONDARY_COLOR}
+                        />
+                        <Text style={[
+                            styles.superZoomButtonText,
+                            superZoomActive && styles.superZoomButtonTextActive
+                        ]}>
+                            100x
+                        </Text>
                     </TouchableOpacity>
 
                     {/* Capture Button - With gradient effect */}
@@ -1086,7 +1183,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         paddingVertical: 10,
-        gap: 40, // Increased spacing between flash and capture buttons
+        gap: 20, // Adjusted spacing for three buttons
     },
     flashButton: {
         backgroundColor: SURFACE_COLOR,
@@ -1095,6 +1192,63 @@ const styles = StyleSheet.create({
     },
     flashButtonActive: {
         backgroundColor: ACCENT_COLOR,
+    },
+    // NEW STYLES FOR 100x SUPER ZOOM FEATURE
+    superZoomButton: {
+        backgroundColor: SURFACE_COLOR,
+        padding: 12,
+        borderRadius: 30,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 14,
+    },
+    superZoomButtonActive: {
+        backgroundColor: WARNING_COLOR,
+    },
+    superZoomButtonText: {
+        color: SECONDARY_COLOR,
+        fontSize: 12,
+        fontWeight: 'bold',
+        marginLeft: 4,
+    },
+    superZoomButtonTextActive: {
+        color: BACKGROUND_COLOR,
+    },
+    superZoomOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 5,
+        pointerEvents: 'none',
+    },
+    superZoomText: {
+        color: 'white',
+        fontSize: 72,
+        fontWeight: 'bold',
+        textShadowColor: 'rgba(0, 0, 0, 0.75)',
+        textShadowOffset: { width: 1, height: 1 },
+        textShadowRadius: 10,
+    },
+    superZoomIndicator: {
+        position: 'absolute',
+        top: 20,
+        left: 20,
+        backgroundColor: WARNING_COLOR,
+        borderRadius: 12,
+        padding: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        zIndex: 3,
+    },
+    superZoomIndicatorText: {
+        color: 'white',
+        fontWeight: 'bold',
+        marginLeft: 5,
     },
     intensityLabel: {
         position: 'absolute',
