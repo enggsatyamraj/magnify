@@ -331,6 +331,19 @@ export default function MagnifierScreen() {
             // Set zoom to maximum when super zoom is activated
             setZoomLevel(1);
 
+            // Show disclaimer alert the first time super zoom is used
+            const disclaimerShownKey = '@magnify_disclaimer_shown';
+            AsyncStorage.getItem(disclaimerShownKey).then(value => {
+                if (!value) {
+                    Alert.alert(
+                        "Enhanced Zoom Feature",
+                        "The 100x magnification feature is a digital enhancement. Actual magnification power depends on your device's camera hardware capabilities.",
+                        [{ text: "Got it", style: "default" }]
+                    );
+                    AsyncStorage.setItem(disclaimerShownKey, 'true');
+                }
+            });
+
             // Animate zoom effect indicator
             Animated.sequence([
                 Animated.parallel([
@@ -702,24 +715,12 @@ export default function MagnifierScreen() {
 
                 {/* 100x Super Zoom Animation Overlay */}
                 {superZoomActive && (
-                    <Animated.View
-                        style={[
-                            styles.superZoomOverlay,
-                            {
-                                opacity: superZoomOpacity,
-                                transform: [{ scale: superZoomScale }]
-                            }
-                        ]}
-                    >
-                        <Text style={styles.superZoomText}>100x</Text>
-                    </Animated.View>
-                )}
-
-                {/* Super Zoom Indicator - always show when active */}
-                {superZoomActive && (
                     <View style={styles.superZoomIndicator}>
                         <MaterialCommunityIcons name="magnify-plus" size={16} color="white" />
-                        <Text style={styles.superZoomIndicatorText}>100x</Text>
+                        <View>
+                            <Text style={styles.superZoomIndicatorText}>100x</Text>
+                            <Text style={styles.superZoomIndicatorDisclaimer}>Digital zoom - varies by device</Text>
+                        </View>
                     </View>
                 )}
 
@@ -840,7 +841,6 @@ export default function MagnifierScreen() {
                         />
                     </TouchableOpacity>
 
-                    {/* 100x Super Zoom Button - NEW BUTTON */}
                     <TouchableOpacity
                         style={[styles.superZoomButton, superZoomActive && styles.superZoomButtonActive]}
                         onPress={toggleSuperZoom}
@@ -851,12 +851,15 @@ export default function MagnifierScreen() {
                             size={24}
                             color={superZoomActive ? BACKGROUND_COLOR : SECONDARY_COLOR}
                         />
-                        <Text style={[
-                            styles.superZoomButtonText,
-                            superZoomActive && styles.superZoomButtonTextActive
-                        ]}>
-                            100x
-                        </Text>
+                        <View>
+                            <Text style={[
+                                styles.superZoomButtonText,
+                                superZoomActive && styles.superZoomButtonTextActive
+                            ]}>
+                                100x
+                            </Text>
+                            <Text style={styles.superZoomDisclaimer}>Digital</Text>
+                        </View>
                     </TouchableOpacity>
 
                     {/* Capture Button - With gradient effect */}
@@ -1018,6 +1021,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         zIndex: 3,
     },
+    superZoomDisclaimer: {
+        color: SECONDARY_COLOR,
+        fontSize: 8,
+        opacity: 0.7,
+        textAlign: 'center',
+    },
     frozenText: {
         color: 'white',
         fontWeight: 'bold',
@@ -1041,6 +1050,12 @@ const styles = StyleSheet.create({
         borderRadius: 32,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    superZoomIndicatorDisclaimer: {
+        color: 'white',
+        opacity: 0.7,
+        fontSize: 8,
+        marginLeft: 5,
     },
     loadingContainer: {
         flex: 1,
