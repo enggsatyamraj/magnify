@@ -734,7 +734,13 @@ export default function MagnifierScreen() {
             </View>
 
             {/* Control panel - positioned outside the camera container, no filter applied here */}
+
             <View style={styles.controlsContainer}>
+                <View style={{
+                    marginLeft: -20, marginBottom: 10
+                }}>
+                    <BannerAd unitId={adUnitId} size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />
+                </View>
                 {/* Top toolbar */}
                 <View style={styles.toolbar}>
                     <Text style={styles.titleText}>Magnify</Text>
