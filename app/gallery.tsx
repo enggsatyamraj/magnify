@@ -18,7 +18,7 @@ import { router } from 'expo-router';
 import * as FileSystem from 'expo-file-system';
 
 import PhotoPreviewModal from '../components/PhotoPreviewModal';
-import { BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, ACCENT_COLOR, SURFACE_COLOR } from '../utils/color';
+import { BACKGROUND_COLOR, PRIMARY_COLOR, SECONDARY_COLOR, ACCENT_COLOR, SURFACE_COLOR, WARNING_COLOR } from '../utils/color';
 
 const { width } = Dimensions.get('window');
 const GALLERY_STORAGE_KEY = '@magnify_gallery';
@@ -30,8 +30,10 @@ const GalleryScreen = () => {
     const [photos, setPhotos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedPhoto, setSelectedPhoto] = useState(null);
+    const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
     const [previewVisible, setPreviewVisible] = useState(false);
     const [deletingPhoto, setDeletingPhoto] = useState(null);
+    const [deletingAll, setDeletingAll] = useState(false);
 
     // Load photos from AsyncStorage on component mount
     useEffect(() => {
@@ -123,6 +125,109 @@ const GalleryScreen = () => {
         }
     };
 
+    // Delete all photos
+    const deleteAllPhotos = async () => {
+        if (photos.length === 0) return;
+
+        setDeletingAll(true);
+        try {
+            // Close preview if open
+            if (previewVisible) {
+                setPreviewVisible(false);
+                setSelectedPhoto(null);
+            }
+
+            // Delete each photo file
+            for (const photo of photos) {
+                try {
+                    await FileSystem.deleteAsync(photo.uri);
+                } catch (error) {
+                    console.error(`Error deleting file ${photo.uri}:`, error);
+                    // Continue with other photos even if one fails
+                }
+            }
+
+            // Clear the storage
+            await AsyncStorage.setItem(GALLERY_STORAGE_KEY, JSON.stringify([]));
+
+            // Update state
+            setPhotos([]);
+
+            // Show success message
+            Alert.alert('Success', 'All photos have been deleted');
+        } catch (error) {
+            console.error('Error deleting all photos:', error);
+            Alert.alert('Error', 'Failed to delete all photos');
+        } finally {
+            setDeletingAll(false);
+        }
+    };
+
+    // Prompt user to confirm deleting all photos
+    const confirmDeleteAll = () => {
+        if (photos.length === 0) {
+            Alert.alert('No Photos', 'There are no photos to delete.');
+            return;
+        }
+
+        Alert.alert(
+            'Delete All Photos',
+            'Are you sure you want to delete ALL photos? This action cannot be undone.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete All',
+                    style: 'destructive',
+                    onPress: deleteAllPhotos
+                }
+            ]
+        );
+    };
+
+    // Show the preview modal for a photo
+    const showPhotoPreview = (photo, index) => {
+        setSelectedPhoto(photo);
+        setSelectedPhotoIndex(index);
+        setPreviewVisible(true);
+    };
+
+    // Close the preview modal
+    const closePhotoPreview = () => {
+        setPreviewVisible(false);
+    };
+
+    // Render a photo item in the grid
+    const renderPhotoItem = ({ item, index }) => {
+        const isDeleting = deletingPhoto === item.id;
+
+        return (
+            <TouchableOpacity
+                style={styles.photoItem}
+                onPress={() => showPhotoPreview(item, index)}
+                disabled={isDeleting || deletingAll}
+            >
+                <Image
+                    source={{ uri: item.uri }}
+                    style={styles.thumbnail}
+                />
+
+                {isDeleting && (
+                    <View style={styles.deleteOverlay}>
+                        <ActivityIndicator color="white" size="small" />
+                    </View>
+                )}
+
+                <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => confirmDelete(item)}
+                    disabled={isDeleting || deletingAll}
+                >
+                    <MaterialCommunityIcons name="delete" size={18} color="white" />
+                </TouchableOpacity>
+            </TouchableOpacity>
+        );
+    };
+
     // Prompt user to confirm photo deletion
     const confirmDelete = (photo) => {
         Alert.alert(
@@ -139,52 +244,15 @@ const GalleryScreen = () => {
         );
     };
 
-    // Show the preview modal for a photo
-    const showPhotoPreview = (photo) => {
-        setSelectedPhoto(photo);
-        setPreviewVisible(true);
-    };
-
-    // Close the preview modal
-    const closePhotoPreview = () => {
-        setPreviewVisible(false);
-    };
-
-    // Render a photo item in the grid
-    const renderPhotoItem = ({ item }) => {
-        const isDeleting = deletingPhoto === item.id;
-
-        return (
-            <TouchableOpacity
-                style={styles.photoItem}
-                onPress={() => showPhotoPreview(item)}
-                disabled={isDeleting}
-            >
-                <Image
-                    source={{ uri: item.uri }}
-                    style={styles.thumbnail}
-                />
-
-                {isDeleting && (
-                    <View style={styles.deleteOverlay}>
-                        <ActivityIndicator color="white" size="small" />
-                    </View>
-                )}
-
-                <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => confirmDelete(item)}
-                    disabled={isDeleting}
-                >
-                    <MaterialCommunityIcons name="delete" size={18} color="white" />
-                </TouchableOpacity>
-            </TouchableOpacity>
-        );
-    };
-
     // Go back to camera screen
     const navigateToCamera = () => {
         router.replace("/mainscreen");
+    };
+
+    // Handle saving photo from preview
+    const handleSavePhoto = (photo) => {
+        // Just close the preview since the photo is already saved
+        closePhotoPreview();
     };
 
     // Main render
@@ -197,11 +265,28 @@ const GalleryScreen = () => {
                 <TouchableOpacity
                     style={styles.backButton}
                     onPress={navigateToCamera}
+                    disabled={deletingAll}
                 >
                     <MaterialCommunityIcons name="arrow-left" size={24} color={SECONDARY_COLOR} />
                 </TouchableOpacity>
                 <Text style={styles.title}>Your Photos</Text>
-                <View style={styles.headerRight} />
+
+                {/* Delete All Button */}
+                {photos.length > 0 ? (
+                    <TouchableOpacity
+                        style={styles.deleteAllButton}
+                        onPress={confirmDeleteAll}
+                        disabled={deletingAll}
+                    >
+                        {deletingAll ? (
+                            <ActivityIndicator size="small" color={WARNING_COLOR} />
+                        ) : (
+                            <MaterialCommunityIcons name="delete-sweep" size={24} color={WARNING_COLOR} />
+                        )}
+                    </TouchableOpacity>
+                ) : (
+                    <View style={styles.headerRight} />
+                )}
             </View>
 
             {/* Content */}
@@ -210,6 +295,11 @@ const GalleryScreen = () => {
                     <View style={styles.loadingContainer}>
                         <ActivityIndicator size="large" color={PRIMARY_COLOR} />
                         <Text style={styles.loadingText}>Loading photos...</Text>
+                    </View>
+                ) : deletingAll ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color={WARNING_COLOR} />
+                        <Text style={styles.loadingText}>Deleting all photos...</Text>
                     </View>
                 ) : photos.length > 0 ? (
                     <FlatList
@@ -233,12 +323,15 @@ const GalleryScreen = () => {
                 )}
             </View>
 
-            {/* Photo Preview Modal */}
+            {/* Photo Preview Modal with enhanced navigation */}
             <PhotoPreviewModal
                 visible={previewVisible}
                 photo={selectedPhoto}
+                photos={photos}
+                initialIndex={selectedPhotoIndex}
                 onDiscard={closePhotoPreview}
-                onSave={closePhotoPreview}
+                onSave={handleSavePhoto}
+                onDelete={deletePhoto}
             />
         </SafeAreaView>
     );
@@ -268,6 +361,12 @@ const styles = StyleSheet.create({
     },
     headerRight: {
         width: 40,
+    },
+    deleteAllButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     content: {
         flex: 1,
